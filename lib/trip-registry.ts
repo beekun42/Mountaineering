@@ -11,7 +11,23 @@ export type TripRegistryEntry = {
   /** YYYY-MM-DD または未設定。未設定なら planDate のみの1日 */
   planEndDate: string | null;
   updatedAt: string;
+  /**
+   * ログイン中に山行ページを開いたとき、メンバーに自分が含まれるか。
+   * 未設定は「未同期」や非ログイン。
+   */
+  participating?: boolean;
 };
+
+/** ログイン名がメンバー一覧にいるか（大文字小文字・前後空白は無視） */
+export function participatingFromMembers(
+  userName: string | undefined | null,
+  members: string[],
+): boolean | undefined {
+  const u = userName?.trim();
+  if (!u) return undefined;
+  const key = u.toLowerCase();
+  return members.some((m) => m.trim().toLowerCase() === key);
+}
 
 const KEY = "mountaineering:trip-registry-v2";
 const LEGACY_KEY = "mountaineering:trip-registry-v1";
@@ -20,10 +36,13 @@ const MAX = 50;
 function isEntry(x: unknown): x is TripRegistryEntry {
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
+  const part = o.participating;
+  const partOk = part === undefined || typeof part === "boolean";
   return (
     typeof o.id === "string" &&
     typeof o.updatedAt === "string" &&
-    typeof o.title === "string"
+    typeof o.title === "string" &&
+    partOk
   );
 }
 
@@ -73,16 +92,20 @@ export function readTripRegistry(): TripRegistryEntry[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isEntry).map((e) => ({
-      id: e.id,
-      title: e.title,
-      planDate: typeof e.planDate === "string" ? e.planDate : null,
-      planEndDate:
-        typeof (e as { planEndDate?: unknown }).planEndDate === "string"
-          ? (e as { planEndDate: string }).planEndDate
-          : null,
-      updatedAt: e.updatedAt,
-    }));
+    return parsed.filter(isEntry).map((e) => {
+      const part = (e as { participating?: unknown }).participating;
+      return {
+        id: e.id,
+        title: e.title,
+        planDate: typeof e.planDate === "string" ? e.planDate : null,
+        planEndDate:
+          typeof (e as { planEndDate?: unknown }).planEndDate === "string"
+            ? (e as { planEndDate: string }).planEndDate
+            : null,
+        updatedAt: e.updatedAt,
+        ...(typeof part === "boolean" ? { participating: part } : {}),
+      };
+    });
   } catch {
     return [];
   }

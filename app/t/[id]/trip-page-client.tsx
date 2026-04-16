@@ -8,7 +8,7 @@ import {
   downloadIcsFile,
   openGoogleCalendarTemplate,
 } from "@/lib/calendar-export";
-import { upsertTripRegistry } from "@/lib/trip-registry";
+import { participatingFromMembers, upsertTripRegistry } from "@/lib/trip-registry";
 import type {
   PackingTemplatePayload,
   SettlementTemplatePayload,
@@ -158,6 +158,7 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
           planDate: payload.planDate.trim() || null,
           planEndDate: payload.planEndDate.trim() || null,
           updatedAt: data.updated_at,
+          participating: participatingFromMembers(session?.user?.name, payload.members),
         });
       } catch {
         setStatus("error");
@@ -165,7 +166,7 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
         setSaving(false);
       }
     },
-    [id],
+    [id, session?.user?.name],
   );
 
   useEffect(() => {
@@ -175,8 +176,9 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       planDate: form.planDate.trim() || null,
       planEndDate: form.planEndDate.trim() || null,
       updatedAt,
+      participating: participatingFromMembers(session?.user?.name, form.members),
     });
-  }, [id, form.title, form.planDate, form.planEndDate, updatedAt]);
+  }, [id, form.title, form.planDate, form.planEndDate, updatedAt, form.members, session?.user?.name]);
 
   useEffect(() => {
     if (skipFirstAutosave.current) {

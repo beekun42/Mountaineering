@@ -43,7 +43,7 @@ export function CreateTripButton() {
         type="button"
         disabled={pending}
         onClick={onCreate}
-        className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+        className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {pending ? "準備中…" : "山へ行く"}
       </button>
