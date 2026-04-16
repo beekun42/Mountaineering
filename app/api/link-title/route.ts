@@ -13,6 +13,28 @@ function extractTitle(html: string): string {
     .trim();
 }
 
+/** og:image（ページが提供する場合） */
+function extractOgImage(html: string, pageUrl: URL): string {
+  const patterns = [
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+    /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+  ];
+  for (const re of patterns) {
+    const m = re.exec(html);
+    if (m?.[1]) {
+      const raw = m[1].trim();
+      if (!raw) continue;
+      try {
+        return new URL(raw, pageUrl).href;
+      } catch {
+        return raw;
+      }
+    }
+  }
+  return "";
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url).searchParams.get("url")?.trim();
   if (!url) {
@@ -45,10 +67,11 @@ export async function GET(req: Request) {
     }
     const html = await res.text();
     const title = extractTitle(html);
+    const image = extractOgImage(html, parsed);
     if (!title) {
       return NextResponse.json({ error: "title not found" }, { status: 404 });
     }
-    return NextResponse.json({ title });
+    return NextResponse.json({ title, image: image || undefined });
   } catch {
     return NextResponse.json({ error: "request failed" }, { status: 500 });
   }

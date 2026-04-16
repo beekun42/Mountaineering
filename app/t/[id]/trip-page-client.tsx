@@ -12,6 +12,7 @@ import { upsertTripRegistry } from "@/lib/trip-registry";
 import type {
   PackingTemplatePayload,
   SettlementTemplatePayload,
+  SettlementTemplateRow,
 } from "@/lib/template-types";
 import type { PaymentEntry, TripPayload } from "@/lib/trip-types";
 import { syncMemberDoneChecks, syncPackingChecks } from "@/lib/trip-types";
@@ -194,11 +195,17 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
     if (!url) {
       setYamapTitle("");
       setYamapError("");
+      setForm((f) =>
+        f.yamapCoverImageUrl ? { ...f, yamapCoverImageUrl: "" } : f,
+      );
       return;
     }
     if (!/^https?:\/\/(www\.)?yamap\.com\//.test(url)) {
       setYamapTitle("");
       setYamapError("YAMAPのURLを入れてください。");
+      setForm((f) =>
+        f.yamapCoverImageUrl ? { ...f, yamapCoverImageUrl: "" } : f,
+      );
       return;
     }
     const timer = setTimeout(async () => {
@@ -207,11 +214,19 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       try {
         const res = await fetch(`/api/link-title?url=${encodeURIComponent(url)}`);
         if (!res.ok) throw new Error("failed");
-        const data = (await res.json()) as { title: string };
+        const data = (await res.json()) as { title: string; image?: string };
         setYamapTitle(data.title || "");
+        const img = typeof data.image === "string" ? data.image.trim() : "";
+        setForm((f) => ({
+          ...f,
+          yamapCoverImageUrl: img,
+        }));
       } catch {
         setYamapTitle("");
         setYamapError("コース名を取得できませんでした。");
+        setForm((f) =>
+          f.yamapCoverImageUrl ? { ...f, yamapCoverImageUrl: "" } : f,
+        );
       } finally {
         setYamapLoading(false);
       }
@@ -271,6 +286,27 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       return {
         ...f,
         members: [...f.members, ""],
+        packingChecks: syncPackingChecks(f.packingChecks, f.packingList, nextLen),
+        memberPaymentDoneChecks: syncMemberDoneChecks(
+          f.memberPaymentDoneChecks,
+          nextLen,
+        ),
+      };
+    });
+  };
+
+  const joinAsLoggedInMember = () => {
+    const name = session?.user?.name?.trim();
+    if (!name) return;
+    setForm((f) => {
+      const key = name.toLowerCase();
+      const exists = f.members.some((m) => m.trim().toLowerCase() === key);
+      if (exists) return f;
+      const members = [...f.members, name];
+      const nextLen = members.length;
+      return {
+        ...f,
+        members,
         packingChecks: syncPackingChecks(f.packingChecks, f.packingList, nextLen),
         memberPaymentDoneChecks: syncMemberDoneChecks(
           f.memberPaymentDoneChecks,
@@ -354,32 +390,56 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
         text,
       }));
       const packingList = [...f.packingList, ...newItems];
+      const base = syncPackingChecks(f.packingChecks, packingList, f.members.length);
+      const packingChecks = { ...base };
+      const mc = f.members.length;
+      for (const it of newItems) {
+        packingChecks[it.id] = Array.from({ length: mc }, () => true);
+      }
       return {
         ...f,
         packingList,
-        packingChecks: syncPackingChecks(f.packingChecks, packingList, f.members.length),
+        packingChecks,
       };
     });
   };
 
-  const applySettlementFromRows = (rows: { note: string; amount: number }[]) => {
+  const applySettlementFromRows = (rows: SettlementTemplateRow[]) => {
     const clean = rows.filter((r) => r.note.trim() !== "" || r.amount > 0);
     if (clean.length === 0) return;
-    setForm((f) => ({
-      ...f,
-      payments: [
-        ...f.payments,
-        ...clean.map((r) => ({
-          id: newEntityId(),
-          payerMemberIndex: null as number | null,
-          targetMemberIndexes: [] as number[],
-          amount: r.amount,
-          note: r.note,
-          isFinalized: false,
-        })),
-      ],
-      settlementChecks: {},
-    }));
+    setForm((f) => {
+      const n = f.members.length;
+      const allTargets = n > 0 ? Array.from({ length: n }, (_, i) => i) : [];
+      return {
+        ...f,
+        payments: [
+          ...f.payments,
+          ...clean.map((r) => ({
+            id: newEntityId(),
+            payerMemberIndex: null as number | null,
+            targetMemberIndexes: r.splitAmongAll ? allTargets : ([] as number[]),
+            amount: r.amount,
+            note: r.note,
+            isFinalized: false,
+          })),
+        ],
+        settlementChecks: {},
+      };
+    });
+  };
+
+  const selectAllPaymentTargets = (paymentId: string) => {
+    setForm((f) => {
+      const n = f.members.length;
+      const all = n > 0 ? Array.from({ length: n }, (_, i) => i) : [];
+      return {
+        ...f,
+        payments: f.payments.map((p) =>
+          p.id === paymentId ? { ...p, targetMemberIndexes: all } : p,
+        ),
+        settlementChecks: {},
+      };
+    });
   };
 
   const addPayment = () => {
@@ -505,9 +565,24 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
 
   const yuruToUrl = form.yuruToUrl.trim() || YURU_TO_DEFAULT;
 
+  const coverUrl = form.yamapCoverImageUrl.trim();
+
   return (
-    <div className="min-h-full bg-zinc-50 pb-32 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 sm:pb-28">
-      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+    <div className="relative min-h-full pb-32 text-zinc-900 dark:text-zinc-100 sm:pb-28">
+      {coverUrl ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0 min-h-[100dvh] bg-zinc-100 bg-cover bg-center dark:bg-zinc-950"
+          style={{ backgroundImage: `url(${coverUrl})` }}
+        />
+      ) : (
+        <div className="pointer-events-none absolute inset-0 z-0 min-h-[100dvh] bg-zinc-50 dark:bg-zinc-950" />
+      )}
+      {coverUrl ? (
+        <div className="pointer-events-none absolute inset-0 z-0 min-h-[100dvh] bg-white/75 dark:bg-zinc-950/80" />
+      ) : null}
+
+      <header className="relative z-10 border-b border-zinc-200/80 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/85">
         <div className="mx-auto flex max-w-3xl flex-col gap-1 px-4 py-4">
           <Link
             href="/"
@@ -516,12 +591,12 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             ← トップへ
           </Link>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            このURLを知っている人が編集できます（ログインなし）· 下のバーから保存
+            URLを知っている人が編集できます · 下のバーから保存
           </p>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8">
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
@@ -608,6 +683,11 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             {!yamapLoading && !yamapTitle && !yamapError ? (
               <p className="text-zinc-500">リンクを入れるとコース名を表示します。</p>
             ) : null}
+            {coverUrl ? (
+              <p className="text-xs text-zinc-500">
+                ページに og:image があるとき、背景にその写真をぼかして表示しています。
+              </p>
+            ) : null}
           </div>
         </section>
 
@@ -616,17 +696,34 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">
               メンバー
             </h2>
-            <button
-              type="button"
-              onClick={addMember}
-              className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-            >
-              追加
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={joinAsLoggedInMember}
+                disabled={!session?.user?.name?.trim()}
+                title={
+                  session?.user?.name
+                    ? "ログイン名をメンバーに追加"
+                    : "トップでログインすると使えます"
+                }
+                className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                参加
+              </button>
+              <button
+                type="button"
+                onClick={addMember}
+                className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              >
+                追加
+              </button>
+            </div>
           </div>
           <ul className="flex flex-col gap-2">
             {form.members.length === 0 ? (
-              <li className="text-sm text-zinc-500">「追加」から名前を入れてください。</li>
+              <li className="text-sm text-zinc-500">
+                「参加」で自分の名前を入れるか、「追加」で空の行を足してください。
+              </li>
             ) : null}
             {form.members.map((m, i) => (
               <li key={i} className="flex items-center gap-2">
@@ -967,8 +1064,17 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
                       placeholder="昼食 / 駐車場 / ガソリン"
                     />
                   </label>
-                  <label className="mt-2 block text-xs text-zinc-600 dark:text-zinc-300">
-                    誰の分？
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-zinc-600 dark:text-zinc-300">誰の分？</span>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                      onClick={() => selectAllPaymentTargets(p.id)}
+                    >
+                      全員
+                    </button>
+                  </div>
+                  <label className="mt-1 block text-xs text-zinc-600 dark:text-zinc-300">
                     <div className="mt-1 flex flex-wrap gap-2">
                       {form.members.map((m, i) => (
                         <label

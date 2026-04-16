@@ -45,7 +45,7 @@ export function CreateTripButton() {
         onClick={onCreate}
         className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
       >
-        {pending ? "作成中…" : "新しい山行ページを作る"}
+        {pending ? "準備中…" : "山へ行く"}
       </button>
       <div className="text-sm text-zinc-500 dark:text-zinc-400">
         <p>

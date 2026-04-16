@@ -19,6 +19,8 @@ export type TripPayload = {
   planEndDate: string;
   schedule: string;
   yamapUrl: string;
+  /** YAMAPページの og:image など（背景用・任意） */
+  yamapCoverImageUrl: string;
   members: string[];
   transport: string;
   timeline: string;
@@ -46,6 +48,7 @@ export function defaultTripPayload(): TripPayload {
     planEndDate: "",
     schedule: "",
     yamapUrl: "",
+    yamapCoverImageUrl: "",
     members: [],
     transport: "",
     timeline: "",
@@ -205,6 +208,8 @@ export function normalizePayload(raw: unknown): TripPayload {
     planEndDate,
     schedule: typeof o.schedule === "string" ? o.schedule : d.schedule,
     yamapUrl: typeof o.yamapUrl === "string" ? o.yamapUrl : d.yamapUrl,
+    yamapCoverImageUrl:
+      typeof o.yamapCoverImageUrl === "string" ? o.yamapCoverImageUrl : d.yamapCoverImageUrl,
     members,
     transport: typeof o.transport === "string" ? o.transport : d.transport,
     timeline: typeof o.timeline === "string" ? o.timeline : d.timeline,

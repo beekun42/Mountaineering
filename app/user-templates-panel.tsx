@@ -49,14 +49,15 @@ export function UserTemplatesPanel() {
 
   if (!session?.user) {
     return (
-      <section className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-900/50">
-        <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">
-          持ち物・清算テンプレ
-        </h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <details className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/80 dark:border-zinc-700 dark:bg-zinc-900/50">
+        <summary className="cursor-pointer list-none px-4 py-3 text-base font-semibold text-zinc-800 marker:hidden dark:text-zinc-200 [&::-webkit-details-marker]:hidden">
+          持ち物・清算テンプレ{" "}
+          <span className="text-xs font-normal text-zinc-500">（クリックで開く）</span>
+        </summary>
+        <p className="border-t border-zinc-200 px-4 pb-4 pt-2 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
           ログインすると、トップでテンプレを保存でき、山行ページから一覧に追加できます。
         </p>
-      </section>
+      </details>
     );
   }
 
@@ -64,30 +65,31 @@ export function UserTemplatesPanel() {
   const settlement = templates.filter((t) => t.kind === "settlement");
 
   return (
-    <section className="space-y-6 rounded-2xl border border-zinc-200 bg-white/90 p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
-      <div>
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-          持ち物・清算テンプレ
-        </h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+    <details className="rounded-2xl border border-zinc-200 bg-white/90 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
+      <summary className="cursor-pointer list-none px-4 py-3 text-lg font-semibold text-zinc-900 marker:hidden dark:text-zinc-100 [&::-webkit-details-marker]:hidden">
+        持ち物・清算テンプレ{" "}
+        <span className="text-xs font-normal text-zinc-500">（クリックで開く）</span>
+      </summary>
+      <div className="space-y-6 border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-800">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
           よく使うリストを登録しておき、山行ページの「テンプレから追加」から反映できます。
         </p>
-      </div>
-      {err ? <p className="text-sm text-amber-800 dark:text-amber-200">{err}</p> : null}
+        {err ? <p className="text-sm text-amber-800 dark:text-amber-200">{err}</p> : null}
 
-      <PackingBlock
-        items={packing}
-        busy={busy}
-        setBusy={setBusy}
-        onChanged={() => void load()}
-      />
-      <SettlementBlock
-        items={settlement}
-        busy={busy}
-        setBusy={setBusy}
-        onChanged={() => void load()}
-      />
-    </section>
+        <PackingBlock
+          items={packing}
+          busy={busy}
+          setBusy={setBusy}
+          onChanged={() => void load()}
+        />
+        <SettlementBlock
+          items={settlement}
+          busy={busy}
+          setBusy={setBusy}
+          onChanged={() => void load()}
+        />
+      </div>
+    </details>
   );
 }
 
@@ -194,6 +196,9 @@ function PackingBlock({
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">持ち物</h3>
+      <p className="text-xs text-zinc-500">
+        山行ページに追加した行は、全員分のチェックが最初からオンになります（あとから外せます）。
+      </p>
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">まだありません。</p>
       ) : (
@@ -289,8 +294,14 @@ function PackingBlock({
   );
 }
 
-function emptySettlementRows(): { note: string; amount: number }[] {
-  return [{ note: "", amount: 0 }];
+type SettlementRowDraft = {
+  note: string;
+  amount: number;
+  splitAmongAll: boolean;
+};
+
+function emptySettlementRows(): SettlementRowDraft[] {
+  return [{ note: "", amount: 0, splitAmongAll: false }];
 }
 
 function SettlementBlock({
@@ -305,12 +316,10 @@ function SettlementBlock({
   onChanged: () => void;
 }) {
   const [name, setName] = useState("");
-  const [rows, setRows] = useState<{ note: string; amount: number }[]>(() =>
-    emptySettlementRows(),
-  );
+  const [rows, setRows] = useState<SettlementRowDraft[]>(() => emptySettlementRows());
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [editRows, setEditRows] = useState<{ note: string; amount: number }[]>([]);
+  const [editRows, setEditRows] = useState<SettlementRowDraft[]>([]);
 
   function startEdit(t: TemplateDto) {
     if (t.kind !== "settlement") return;
@@ -318,7 +327,13 @@ function SettlementBlock({
     setEditId(t.id);
     setEditName(t.name);
     setEditRows(
-      p.rows.length > 0 ? p.rows.map((r) => ({ ...r })) : emptySettlementRows(),
+      p.rows.length > 0
+        ? p.rows.map((r) => ({
+            note: r.note,
+            amount: r.amount,
+            splitAmongAll: r.splitAmongAll === true,
+          }))
+        : emptySettlementRows(),
     );
   }
 
@@ -340,7 +355,13 @@ function SettlementBlock({
         body: JSON.stringify({
           kind: "settlement",
           name: name.trim(),
-          payload: { rows: clean },
+          payload: {
+            rows: clean.map((r) => ({
+              note: r.note,
+              amount: r.amount,
+              ...(r.splitAmongAll ? { splitAmongAll: true } : {}),
+            })),
+          },
         }),
       });
       if (res.ok) {
@@ -365,7 +386,13 @@ function SettlementBlock({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editName.trim(),
-          payload: { rows: clean },
+          payload: {
+            rows: clean.map((r) => ({
+              note: r.note,
+              amount: r.amount,
+              ...(r.splitAmongAll ? { splitAmongAll: true } : {}),
+            })),
+          },
         }),
       });
       if (res.ok) {
@@ -395,7 +422,7 @@ function SettlementBlock({
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">清算（支払い行のたたき台）</h3>
       <p className="text-xs text-zinc-500">
-        項目名と金額だけ入れておきます。山行ページでは「未確定の支払い」として追加され、あとから立替・割り勘を設定できます。
+        項目名と金額だけ入れておきます。山行ページでは「未確定の支払い」として追加され、あとから立替・割り勘を設定できます。「全員で割り勘」にすると、適用したときその時点のメンバー全員が対象になります（車代など）。
       </p>
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">まだありません。</p>
@@ -439,39 +466,56 @@ function SettlementBlock({
             onChange={(e) => setEditName(e.target.value)}
             placeholder="テンプレ名"
           />
-          <div className="space-y-2">
+          <div className="space-y-3">
             {editRows.map((r, i) => (
-              <div key={i} className="flex flex-wrap gap-2">
-                <input
-                  className="min-w-[8rem] flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
-                  value={r.note}
-                  onChange={(e) => {
-                    const next = [...editRows];
-                    next[i] = { ...next[i], note: e.target.value };
-                    setEditRows(next);
-                  }}
-                  placeholder="項目（例：山小屋夕食）"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  className="w-28 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
-                  value={r.amount || ""}
-                  onChange={(e) => {
-                    const next = [...editRows];
-                    const v = Number(e.target.value);
-                    next[i] = { ...next[i], amount: Number.isFinite(v) && v >= 0 ? v : 0 };
-                    setEditRows(next);
-                  }}
-                  placeholder="金額"
-                />
+              <div key={i} className="space-y-1 rounded-lg border border-zinc-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/40">
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    className="min-w-[8rem] flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                    value={r.note}
+                    onChange={(e) => {
+                      const next = [...editRows];
+                      next[i] = { ...next[i], note: e.target.value };
+                      setEditRows(next);
+                    }}
+                    placeholder="項目（例：山小屋夕食）"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    className="w-28 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                    value={r.amount || ""}
+                    onChange={(e) => {
+                      const next = [...editRows];
+                      const v = Number(e.target.value);
+                      next[i] = { ...next[i], amount: Number.isFinite(v) && v >= 0 ? v : 0 };
+                      setEditRows(next);
+                    }}
+                    placeholder="金額"
+                  />
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <input
+                    type="checkbox"
+                    className="accent-emerald-600"
+                    checked={r.splitAmongAll}
+                    onChange={(e) => {
+                      const next = [...editRows];
+                      next[i] = { ...next[i], splitAmongAll: e.target.checked };
+                      setEditRows(next);
+                    }}
+                  />
+                  適用時に全員で割り勘（その時点のメンバー全員が対象）
+                </label>
               </div>
             ))}
           </div>
           <button
             type="button"
             className="text-sm text-emerald-800 underline dark:text-emerald-300"
-            onClick={() => setEditRows([...editRows, { note: "", amount: 0 }])}
+            onClick={() =>
+              setEditRows([...editRows, { note: "", amount: 0, splitAmongAll: false }])
+            }
           >
             行を追加
           </button>
@@ -503,39 +547,54 @@ function SettlementBlock({
           onChange={(e) => setName(e.target.value)}
           placeholder="テンプレ名"
         />
-        <div className="space-y-2">
+        <div className="space-y-3">
           {rows.map((r, i) => (
-            <div key={i} className="flex flex-wrap gap-2">
-              <input
-                className="min-w-[8rem] flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
-                value={r.note}
-                onChange={(e) => {
-                  const next = [...rows];
-                  next[i] = { ...next[i], note: e.target.value };
-                  setRows(next);
-                }}
-                placeholder="項目"
-              />
-              <input
-                type="number"
-                min={0}
-                className="w-28 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
-                value={r.amount || ""}
-                onChange={(e) => {
-                  const next = [...rows];
-                  const v = Number(e.target.value);
-                  next[i] = { ...next[i], amount: Number.isFinite(v) && v >= 0 ? v : 0 };
-                  setRows(next);
-                }}
-                placeholder="金額"
-              />
+            <div key={i} className="space-y-1 rounded-lg border border-zinc-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/40">
+              <div className="flex flex-wrap gap-2">
+                <input
+                  className="min-w-[8rem] flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                  value={r.note}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i], note: e.target.value };
+                    setRows(next);
+                  }}
+                  placeholder="項目"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  className="w-28 rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                  value={r.amount || ""}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    const v = Number(e.target.value);
+                    next[i] = { ...next[i], amount: Number.isFinite(v) && v >= 0 ? v : 0 };
+                    setRows(next);
+                  }}
+                  placeholder="金額"
+                />
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  className="accent-emerald-600"
+                  checked={r.splitAmongAll}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i], splitAmongAll: e.target.checked };
+                    setRows(next);
+                  }}
+                />
+                適用時に全員で割り勘
+              </label>
             </div>
           ))}
         </div>
         <button
           type="button"
           className="text-sm text-emerald-800 underline dark:text-emerald-300"
-          onClick={() => setRows([...rows, { note: "", amount: 0 }])}
+          onClick={() => setRows([...rows, { note: "", amount: 0, splitAmongAll: false }])}
         >
           行を追加
         </button>

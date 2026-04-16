@@ -109,8 +109,6 @@ export function HomeDashboard() {
 
       <UserAuthPanel />
 
-      <UserTemplatesPanel />
-
       <section className="rounded-2xl border border-zinc-200 bg-white/90 p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
@@ -257,6 +255,8 @@ export function HomeDashboard() {
       </section>
 
       <CreateTripButton />
+
+      <UserTemplatesPanel />
     </div>
   );
 }

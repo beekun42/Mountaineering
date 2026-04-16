@@ -9,6 +9,8 @@ export type PackingTemplatePayload = {
 export type SettlementTemplateRow = {
   note: string;
   amount: number;
+  /** 山行ページに適用したとき、当時のメンバー全員を割り勘対象にする（車代など） */
+  splitAmongAll?: boolean;
 };
 
 export type SettlementTemplatePayload = {
@@ -45,7 +47,8 @@ export function normalizeSettlementTemplatePayload(raw: unknown): SettlementTemp
       typeof amountRaw === "number" && Number.isFinite(amountRaw) && amountRaw >= 0
         ? amountRaw
         : 0;
-    rows.push({ note, amount });
+    const splitAmongAll = row.splitAmongAll === true;
+    rows.push({ note, amount, ...(splitAmongAll ? { splitAmongAll: true } : {}) });
     if (rows.length >= 200) break;
   }
   return { rows };
