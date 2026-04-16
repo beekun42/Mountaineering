@@ -4,11 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { addDaysToYmd } from "@/lib/calendar-export";
-import {
-  readTripRegistry,
-  removeTripRegistry,
-  type TripRegistryEntry,
-} from "@/lib/trip-registry";
+import type { TripRegistryEntry } from "@/lib/trip-registry";
 import { CreateTripButton } from "./create-trip-button";
 import { UserAuthPanel } from "./user-auth-panel";
 import { UserTemplatesPanel } from "./user-templates-panel";
@@ -86,18 +82,62 @@ export function HomeDashboard() {
   });
   const [selectedYmd, setSelectedYmd] = useState<string | null>(null);
 
-  const refresh = useCallback(() => {
-    setEntries(readTripRegistry());
-  }, []);
+  const refresh = useCallback(async () => {
+    if (!session?.user?.id || !session.user.name?.trim()) {
+      setEntries([]);
+      return;
+    }
+    try {
+      const res = await fetch("/api/trips/calendar", { credentials: "include" });
+      if (!res.ok) {
+        setEntries([]);
+        return;
+      }
+      const data = (await res.json()) as { entries: TripRegistryEntry[] };
+      setEntries(data.entries ?? []);
+    } catch {
+      setEntries([]);
+    }
+  }, [session?.user?.id, session?.user?.name]);
 
   useEffect(() => {
-    void Promise.resolve().then(() => refresh());
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key?.includes("trip-registry")) refresh();
+    if (!loggedIn) {
+      setEntries([]);
+      return;
+    }
+    void refresh();
+  }, [loggedIn, refresh]);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    const onFocus = () => void refresh();
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refresh();
     };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [refresh]);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [loggedIn, refresh]);
+
+  const hideFromHome = useCallback(
+    async (tripId: string) => {
+      try {
+        const res = await fetch("/api/trips/calendar/hide", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tripId }),
+        });
+        if (res.ok) await refresh();
+      } catch {
+        /* ignore */
+      }
+    },
+    [refresh],
+  );
 
   const byDate = useMemo(() => {
     const m = new Map<string, TripRegistryEntry[]>();
@@ -168,6 +208,9 @@ export function HomeDashboard() {
               </button>
             </div>
           </div>
+          <p className="mb-2 text-xs text-zinc-500">
+            表示はサーバーに保存された山行から、あなたがオーナーかメンバーに含まれるものです。同じユーザー名でログインした仲間も同じ条件で見られます（一覧から消しても山行ページは残ります）。
+          </p>
           <p className="mb-2 text-xs text-zinc-500">
             複数日にまたぐ山行は、終了日まで点が付きます。ログイン時は
             <span className="mx-0.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
@@ -270,11 +313,11 @@ export function HomeDashboard() {
 
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            最近の山行（このブラウザ）
+            最近の山行（共通）
           </h2>
           {entries.length === 0 ? (
             <p className="text-sm text-zinc-500">
-              まだありません。「山へ行く」でページを作成するとここに並びます。
+              まだありません。「山へ行く」で作成するか、メンバーに自分のログイン名を入れた山行がここに並びます。
             </p>
           ) : (
             <ul className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
@@ -304,12 +347,10 @@ export function HomeDashboard() {
                   <button
                     type="button"
                     className="shrink-0 text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-                    onClick={() => {
-                      removeTripRegistry(t.id);
-                      refresh();
-                    }}
+                    title="あなたのホームからだけ外します（山行ページは消えません）"
+                    onClick={() => void hideFromHome(t.id)}
                   >
-                    履歴から消す
+                    ホームから隠す
                   </button>
                 </li>
               ))}
@@ -348,7 +389,7 @@ export function HomeDashboard() {
         <p className="text-sm text-zinc-500 dark:text-zinc-500">
           {loggedIn ? (
             <>
-              履歴とカレンダー上の表示は、このブラウザに保存されます。別端末と揃えるには同じユーザー名でログインしてください。
+              カレンダーと「最近の山行」はサーバーに紐づく山行を表示します。テンプレやユーザー別の設定はログイン名で引き継がれます。
             </>
           ) : (
             <>

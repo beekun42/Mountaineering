@@ -54,6 +54,17 @@ function ensureSchema() {
       await sql`
         CREATE INDEX IF NOT EXISTS idx_user_templates_user_kind ON user_templates (user_id, kind)
       `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS user_calendar_hidden (
+          user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          trip_id TEXT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
+          hidden_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, trip_id)
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_calendar_hidden_user ON user_calendar_hidden (user_id)
+      `;
     })();
   }
   return schemaReady;
@@ -312,6 +323,69 @@ export async function listTripsByOwner(ownerId: string): Promise<TripRow[]> {
           : new Date(r.updated_at as Date).toISOString(),
     };
   });
+}
+
+/**
+ * ログインユーザー向け共通カレンダー用：
+ * 自分がオーナーの山行、またはメンバー名に自分が含まれる山行（非表示を除く）。
+ * 件数上限のため直近更新の行から走査し、メンバー照合はアプリ側でも行う。
+ */
+export async function listTripsForUserCalendar(
+  userId: string,
+  username: string,
+): Promise<TripRow[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT t.id, t.payload, t.updated_at, t.owner_id
+    FROM trips t
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM user_calendar_hidden h
+      WHERE h.user_id = ${userId} AND h.trip_id = t.id
+    )
+    ORDER BY t.updated_at DESC
+    LIMIT 600
+  `;
+  const key = username.trim().toLowerCase();
+  const out: TripRow[] = [];
+  for (const row of rows) {
+    const r = row as {
+      id: string;
+      payload: unknown;
+      updated_at: string | Date;
+      owner_id: string | null;
+    };
+    const payload = normalizePayload(r.payload);
+    const isOwner = r.owner_id === userId;
+    const isMember = payload.members.some(
+      (m) => m.trim().toLowerCase() === key,
+    );
+    if (!isOwner && !isMember) continue;
+    out.push({
+      id: r.id,
+      payload,
+      updated_at:
+        typeof r.updated_at === "string"
+          ? r.updated_at
+          : new Date(r.updated_at).toISOString(),
+    });
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+export async function hideTripFromUserCalendar(
+  userId: string,
+  tripId: string,
+): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  await sql`
+    INSERT INTO user_calendar_hidden (user_id, trip_id)
+    VALUES (${userId}, ${tripId})
+    ON CONFLICT (user_id, trip_id) DO NOTHING
+  `;
 }
 
 export async function getTrip(id: string): Promise<TripRow | null> {
