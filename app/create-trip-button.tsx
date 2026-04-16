@@ -13,7 +13,10 @@ export function CreateTripButton() {
     setError(false);
     setPending(true);
     try {
-      const res = await fetch("/api/trips", { method: "POST" });
+      const res = await fetch("/api/trips", {
+        method: "POST",
+        credentials: "include",
+      });
       if (!res.ok) {
         setError(true);
         return;
@@ -45,7 +48,9 @@ export function CreateTripButton() {
         {pending ? "作成中…" : "新しい山行ページを作る"}
       </button>
       <div className="text-sm text-zinc-500 dark:text-zinc-400">
-        <p>保存先は Neon（Postgres）です。アカウント不要・URL が鍵です。</p>
+        <p>
+          保存先は Neon（Postgres）です。ログイン時に作ったページは、トップの「このユーザーで作った山行」にも出ます。
+        </p>
         {error ? (
           <p className="mt-2 text-amber-800 dark:text-amber-200">
             作成に失敗しました。環境変数 DATABASE_URL（Neon の接続文字列）を設定して再デプロイしてください。

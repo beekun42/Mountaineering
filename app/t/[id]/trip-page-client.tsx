@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildIcsAllDayEvent,
@@ -8,6 +9,10 @@ import {
   openGoogleCalendarTemplate,
 } from "@/lib/calendar-export";
 import { upsertTripRegistry } from "@/lib/trip-registry";
+import type {
+  PackingTemplatePayload,
+  SettlementTemplatePayload,
+} from "@/lib/template-types";
 import type { PaymentEntry, TripPayload } from "@/lib/trip-types";
 import { syncMemberDoneChecks, syncPackingChecks } from "@/lib/trip-types";
 
@@ -22,6 +27,20 @@ type Transfer = {
   toIndex: number;
   amount: number;
 };
+
+type TripRemoteTemplate = {
+  id: string;
+  kind: "packing" | "settlement";
+  name: string;
+  payload: PackingTemplatePayload | SettlementTemplatePayload;
+  updated_at: string;
+};
+
+function newEntityId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `id_${Date.now()}_${Math.random()}`;
+}
 
 const YURU_TO_DEFAULT = "https://yuru-to.net/";
 
@@ -76,6 +95,14 @@ function computeTransfers(memberCount: number, entries: PaymentEntry[]): Transfe
 }
 
 export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) {
+  const { data: session } = useSession();
+  const [packingTemplates, setPackingTemplates] = useState<TripRemoteTemplate[]>([]);
+  const [settlementTemplates, setSettlementTemplates] = useState<TripRemoteTemplate[]>(
+    [],
+  );
+  const [packingTemplateId, setPackingTemplateId] = useState("");
+  const [settlementTemplateId, setSettlementTemplateId] = useState("");
+
   const [form, setForm] = useState<TripPayload>(initialPayload);
   const [updatedAt, setUpdatedAt] = useState(initialUpdatedAt);
   const [saving, setSaving] = useState(false);
@@ -86,6 +113,26 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
   const [yamapError, setYamapError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipFirstAutosave = useRef(true);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setPackingTemplates([]);
+      setSettlementTemplates([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch("/api/templates", { credentials: "include" });
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as { templates: TripRemoteTemplate[] };
+      const list = data.templates ?? [];
+      setPackingTemplates(list.filter((t) => t.kind === "packing"));
+      setSettlementTemplates(list.filter((t) => t.kind === "settlement"));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
 
   const save = useCallback(
     async (payload: TripPayload) => {
@@ -296,6 +343,43 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       const nextRow = row.map((v, i) => (i === memberIndex ? !v : v));
       return { ...f, packingChecks: { ...f.packingChecks, [itemId]: nextRow } };
     });
+  };
+
+  const applyPackingFromLines = (lines: string[]) => {
+    const trimmed = lines.map((s) => s.trim()).filter(Boolean);
+    if (trimmed.length === 0) return;
+    setForm((f) => {
+      const newItems = trimmed.map((text) => ({
+        id: newEntityId(),
+        text,
+      }));
+      const packingList = [...f.packingList, ...newItems];
+      return {
+        ...f,
+        packingList,
+        packingChecks: syncPackingChecks(f.packingChecks, packingList, f.members.length),
+      };
+    });
+  };
+
+  const applySettlementFromRows = (rows: { note: string; amount: number }[]) => {
+    const clean = rows.filter((r) => r.note.trim() !== "" || r.amount > 0);
+    if (clean.length === 0) return;
+    setForm((f) => ({
+      ...f,
+      payments: [
+        ...f.payments,
+        ...clean.map((r) => ({
+          id: newEntityId(),
+          payerMemberIndex: null as number | null,
+          targetMemberIndexes: [] as number[],
+          amount: r.amount,
+          note: r.note,
+          isFinalized: false,
+        })),
+      ],
+      settlementChecks: {},
+    }));
   };
 
   const addPayment = () => {
@@ -602,6 +686,47 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
               行を追加
             </button>
           </div>
+          {session?.user ? (
+            packingTemplates.length > 0 ? (
+              <div className="flex flex-wrap items-end gap-2 rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950/50">
+                <label className="flex min-w-[10rem] flex-col gap-0.5">
+                  <span className="text-xs text-zinc-500">テンプレから追加</span>
+                  <select
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-900"
+                    value={packingTemplateId}
+                    onChange={(e) => setPackingTemplateId(e.target.value)}
+                  >
+                    <option value="">選んでください</option>
+                    {packingTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="rounded-lg border border-emerald-600 bg-white px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50 dark:border-emerald-500 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+                  onClick={() => {
+                    const t = packingTemplates.find((x) => x.id === packingTemplateId);
+                    if (!t || t.kind !== "packing") return;
+                    applyPackingFromLines((t.payload as PackingTemplatePayload).lines);
+                    setPackingTemplateId("");
+                  }}
+                >
+                  リストに追加
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-500">
+                トップで持ち物テンプレを登録すると、ここから一括追加できます。
+              </p>
+            )
+          ) : (
+            <p className="text-xs text-zinc-500">
+              トップでログインすると、登録した持ち物テンプレを使えます。
+            </p>
+          )}
           {form.members.length === 0 ? (
             <p className="text-sm text-amber-800 dark:text-amber-200">
               メンバーを先に入れてください。
@@ -702,6 +827,47 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
               支払いを追加
             </button>
           </div>
+          {session?.user ? (
+            settlementTemplates.length > 0 ? (
+              <div className="flex flex-wrap items-end gap-2 rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950/50">
+                <label className="flex min-w-[10rem] flex-col gap-0.5">
+                  <span className="text-xs text-zinc-500">テンプレから追加</span>
+                  <select
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-900"
+                    value={settlementTemplateId}
+                    onChange={(e) => setSettlementTemplateId(e.target.value)}
+                  >
+                    <option value="">選んでください</option>
+                    {settlementTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="rounded-lg border border-emerald-600 bg-white px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50 dark:border-emerald-500 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+                  onClick={() => {
+                    const t = settlementTemplates.find((x) => x.id === settlementTemplateId);
+                    if (!t || t.kind !== "settlement") return;
+                    applySettlementFromRows((t.payload as SettlementTemplatePayload).rows);
+                    setSettlementTemplateId("");
+                  }}
+                >
+                  支払い行を追加
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-500">
+                トップで清算テンプレを登録すると、ここからたたき台を追加できます。
+              </p>
+            )
+          ) : (
+            <p className="text-xs text-zinc-500">
+              トップでログインすると、登録した清算テンプレを使えます。
+            </p>
+          )}
 
           <div className="space-y-2">
             {form.payments.length === 0 ? (

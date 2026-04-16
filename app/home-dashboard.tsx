@@ -9,6 +9,8 @@ import {
   type TripRegistryEntry,
 } from "@/lib/trip-registry";
 import { CreateTripButton } from "./create-trip-button";
+import { UserAuthPanel } from "./user-auth-panel";
+import { UserTemplatesPanel } from "./user-templates-panel";
 
 const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -98,12 +100,16 @@ export function HomeDashboard() {
             ゆるーと
           </a>
           ・Walica などのリンクや、日程・持ち物・交通のメモを共有します。
-          アカウントは不要で、URL を知っている仲間だけが編集できます。
+          URL を知っている仲間だけが編集できます。
         </p>
         <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          開いたブラウザにだけ履歴とカレンダー表示が保存されます（別の端末とは同期されません）。
+          履歴とカレンダー上の点はこのブラウザに保存されます。別端末と揃えたいときだけ、下のユーザー名登録を使ってください。
         </p>
       </div>
+
+      <UserAuthPanel />
+
+      <UserTemplatesPanel />
 
       <section className="rounded-2xl border border-zinc-200 bg-white/90 p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
         <div className="mb-3 flex items-center justify-between gap-2">
