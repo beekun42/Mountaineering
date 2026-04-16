@@ -32,6 +32,8 @@ export type TripPayload = {
   onsen: string;
   expenses: string;
   payments: PaymentEntry[];
+  /** メンバーごとの「支払い入力完了」チェック */
+  memberPaymentDoneChecks: boolean[];
   /** 送金結果のチェック状態。key は from->to:amount */
   settlementChecks: Record<string, boolean>;
   notes: string;
@@ -54,6 +56,7 @@ export function defaultTripPayload(): TripPayload {
     onsen: "",
     expenses: "",
     payments: [],
+    memberPaymentDoneChecks: [],
     settlementChecks: {},
     notes: "",
   };
@@ -181,6 +184,10 @@ export function normalizePayload(raw: unknown): TripPayload {
   );
   const payments = normalizePayments(o.payments, members.length);
   const settlementChecks = normalizeSettlementChecks(o.settlementChecks);
+  const memberPaymentDoneChecks = normalizeMemberPaymentDoneChecks(
+    o.memberPaymentDoneChecks,
+    members.length,
+  );
 
   const yuruToDirect = typeof o.yuruToUrl === "string" ? o.yuruToUrl : "";
   const yuruLegacy = typeof o.yurakuUrl === "string" ? (o.yurakuUrl as string) : "";
@@ -208,9 +215,21 @@ export function normalizePayload(raw: unknown): TripPayload {
     onsen: typeof o.onsen === "string" ? o.onsen : d.onsen,
     expenses: typeof o.expenses === "string" ? o.expenses : d.expenses,
     payments,
+    memberPaymentDoneChecks,
     settlementChecks,
     notes: typeof o.notes === "string" ? o.notes : d.notes,
   };
+}
+
+function normalizeMemberPaymentDoneChecks(
+  raw: unknown,
+  memberCount: number,
+): boolean[] {
+  if (!Array.isArray(raw) || !raw.every((x) => typeof x === "boolean")) {
+    return Array.from({ length: memberCount }, () => false);
+  }
+  const b = raw as boolean[];
+  return Array.from({ length: memberCount }, (_, i) => b[i] ?? false);
 }
 
 /** クライアント用：アイテム追加時にチェック配列を揃える */
@@ -225,4 +244,11 @@ export function syncPackingChecks(
     next[item.id] = Array.from({ length: memberCount }, (_, i) => prev?.[i] ?? false);
   }
   return next;
+}
+
+export function syncMemberDoneChecks(
+  checks: boolean[],
+  memberCount: number,
+): boolean[] {
+  return Array.from({ length: memberCount }, (_, i) => checks[i] ?? false);
 }
