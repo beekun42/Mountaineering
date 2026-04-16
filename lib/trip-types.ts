@@ -2,11 +2,20 @@ import { randomUUID } from "crypto";
 
 export type PackingItem = { id: string; text: string };
 
+export type PaymentEntry = {
+  id: string;
+  payerMemberIndex: number | null;
+  targetMemberIndexes: number[];
+  amount: number;
+  note: string;
+  isFinalized: boolean;
+};
+
 export type TripPayload = {
   title: string;
   /** YYYY-MM-DD または空（期間の初日） */
   planDate: string;
-  /** YYYY-MM-DD または空。空なら planDate のみの1日。2泊3日なら「帰宅日」や「最終日」を入れる想定 */
+  /** YYYY-MM-DD または空。空なら planDate のみの1日 */
   planEndDate: string;
   schedule: string;
   yamapUrl: string;
@@ -16,12 +25,15 @@ export type TripPayload = {
   /** 旧形式のメモ（移行用・互換） */
   packing: string;
   packingList: PackingItem[];
-  /** itemId → メンバーindex ごとのチェック */
+  /** itemId -> メンバーindexごとのチェック */
   packingChecks: Record<string, boolean[]>;
   /** ゆるーと（https://yuru-to.net/ 等）埋め込み用。旧フィールド yurakuUrl から移行 */
   yuruToUrl: string;
   onsen: string;
   expenses: string;
+  payments: PaymentEntry[];
+  /** 送金結果のチェック状態。key は from->to:amount */
+  settlementChecks: Record<string, boolean>;
   notes: string;
 };
 
@@ -41,6 +53,8 @@ export function defaultTripPayload(): TripPayload {
     yuruToUrl: "",
     onsen: "",
     expenses: "",
+    payments: [],
+    settlementChecks: {},
     notes: "",
   };
 }
@@ -91,6 +105,64 @@ function normalizePackingChecks(
   return out;
 }
 
+function normalizePayments(
+  raw: unknown,
+  memberCount: number,
+): PaymentEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const list: PaymentEntry[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id : randomUUID();
+    const payerRaw = r.payerMemberIndex;
+    const payerMemberIndex =
+      typeof payerRaw === "number" &&
+      Number.isInteger(payerRaw) &&
+      payerRaw >= 0 &&
+      payerRaw < memberCount
+        ? payerRaw
+        : null;
+    const targetsRaw = r.targetMemberIndexes;
+    const targetMemberIndexes =
+      Array.isArray(targetsRaw) && targetsRaw.every((x) => typeof x === "number")
+        ? Array.from(
+            new Set(
+              (targetsRaw as number[]).filter(
+                (x) => Number.isInteger(x) && x >= 0 && x < memberCount,
+              ),
+            ),
+          ).sort((a, b) => a - b)
+        : [];
+    const amountRaw = r.amount;
+    const amount =
+      typeof amountRaw === "number" && Number.isFinite(amountRaw) && amountRaw >= 0
+        ? amountRaw
+        : 0;
+    const note = typeof r.note === "string" ? r.note : "";
+    const isFinalized = r.isFinalized === true;
+    list.push({
+      id,
+      payerMemberIndex,
+      targetMemberIndexes,
+      amount,
+      note,
+      isFinalized,
+    });
+  }
+  return list;
+}
+
+function normalizeSettlementChecks(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== "object") return {};
+  const src = raw as Record<string, unknown>;
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (typeof v === "boolean") out[k] = v;
+  }
+  return out;
+}
+
 export function normalizePayload(raw: unknown): TripPayload {
   const d = defaultTripPayload();
   if (!raw || typeof raw !== "object") return d;
@@ -107,11 +179,11 @@ export function normalizePayload(raw: unknown): TripPayload {
     packingList,
     members.length,
   );
+  const payments = normalizePayments(o.payments, members.length);
+  const settlementChecks = normalizeSettlementChecks(o.settlementChecks);
 
-  const yuruToDirect =
-    typeof o.yuruToUrl === "string" ? o.yuruToUrl : "";
-  const yuruLegacy =
-    typeof o.yurakuUrl === "string" ? (o.yurakuUrl as string) : "";
+  const yuruToDirect = typeof o.yuruToUrl === "string" ? o.yuruToUrl : "";
+  const yuruLegacy = typeof o.yurakuUrl === "string" ? (o.yurakuUrl as string) : "";
   const yuruToUrl = yuruToDirect.trim() !== "" ? yuruToDirect : yuruLegacy;
 
   let planEndDate =
@@ -135,6 +207,8 @@ export function normalizePayload(raw: unknown): TripPayload {
     yuruToUrl,
     onsen: typeof o.onsen === "string" ? o.onsen : d.onsen,
     expenses: typeof o.expenses === "string" ? o.expenses : d.expenses,
+    payments,
+    settlementChecks,
     notes: typeof o.notes === "string" ? o.notes : d.notes,
   };
 }
