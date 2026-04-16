@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { upsertTripRegistry } from "@/lib/trip-registry";
 
 export function CreateTripButton() {
   const router = useRouter();
@@ -18,6 +19,12 @@ export function CreateTripButton() {
         return;
       }
       const data = (await res.json()) as { id: string };
+      upsertTripRegistry({
+        id: data.id,
+        title: "無題の山行",
+        planDate: null,
+        updatedAt: new Date().toISOString(),
+      });
       router.push(`/t/${data.id}`);
     } catch {
       setError(true);
