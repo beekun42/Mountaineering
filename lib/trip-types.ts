@@ -4,8 +4,10 @@ export type PackingItem = { id: string; text: string };
 
 export type TripPayload = {
   title: string;
-  /** YYYY-MM-DD または空 */
+  /** YYYY-MM-DD または空（期間の初日） */
   planDate: string;
+  /** YYYY-MM-DD または空。空なら planDate のみの1日。2泊3日なら「帰宅日」や「最終日」を入れる想定 */
+  planEndDate: string;
   schedule: string;
   yamapUrl: string;
   members: string[];
@@ -16,8 +18,8 @@ export type TripPayload = {
   packingList: PackingItem[];
   /** itemId → メンバーindex ごとのチェック */
   packingChecks: Record<string, boolean[]>;
-  /** ゆらーく等の埋め込み用URL */
-  yurakuUrl: string;
+  /** ゆるーと（https://yuru-to.net/ 等）埋め込み用。旧フィールド yurakuUrl から移行 */
+  yuruToUrl: string;
   onsen: string;
   expenses: string;
   notes: string;
@@ -27,6 +29,7 @@ export function defaultTripPayload(): TripPayload {
   return {
     title: "",
     planDate: "",
+    planEndDate: "",
     schedule: "",
     yamapUrl: "",
     members: [],
@@ -35,7 +38,7 @@ export function defaultTripPayload(): TripPayload {
     packing: "",
     packingList: [],
     packingChecks: {},
-    yurakuUrl: "",
+    yuruToUrl: "",
     onsen: "",
     expenses: "",
     notes: "",
@@ -105,9 +108,22 @@ export function normalizePayload(raw: unknown): TripPayload {
     members.length,
   );
 
+  const yuruToDirect =
+    typeof o.yuruToUrl === "string" ? o.yuruToUrl : "";
+  const yuruLegacy =
+    typeof o.yurakuUrl === "string" ? (o.yurakuUrl as string) : "";
+  const yuruToUrl = yuruToDirect.trim() !== "" ? yuruToDirect : yuruLegacy;
+
+  let planEndDate =
+    typeof o.planEndDate === "string" ? o.planEndDate : d.planEndDate;
+  if (planEndDate && typeof o.planDate === "string" && o.planDate && planEndDate < o.planDate) {
+    planEndDate = "";
+  }
+
   return {
     title: typeof o.title === "string" ? o.title : d.title,
     planDate: typeof o.planDate === "string" ? o.planDate : d.planDate,
+    planEndDate,
     schedule: typeof o.schedule === "string" ? o.schedule : d.schedule,
     yamapUrl: typeof o.yamapUrl === "string" ? o.yamapUrl : d.yamapUrl,
     members,
@@ -116,7 +132,7 @@ export function normalizePayload(raw: unknown): TripPayload {
     packing: legacyPacking,
     packingList,
     packingChecks,
-    yurakuUrl: typeof o.yurakuUrl === "string" ? o.yurakuUrl : d.yurakuUrl,
+    yuruToUrl,
     onsen: typeof o.onsen === "string" ? o.onsen : d.onsen,
     expenses: typeof o.expenses === "string" ? o.expenses : d.expenses,
     notes: typeof o.notes === "string" ? o.notes : d.notes,

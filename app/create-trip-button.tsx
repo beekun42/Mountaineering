@@ -23,6 +23,7 @@ export function CreateTripButton() {
         id: data.id,
         title: "無題の山行",
         planDate: null,
+        planEndDate: null,
         updatedAt: new Date().toISOString(),
       });
       router.push(`/t/${data.id}`);

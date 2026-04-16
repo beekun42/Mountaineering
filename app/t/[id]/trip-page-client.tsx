@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildIcsAllDayEvent,
+  downloadIcsFile,
+  openGoogleCalendarTemplate,
+} from "@/lib/calendar-export";
 import { upsertTripRegistry } from "@/lib/trip-registry";
 import type { TripPayload } from "@/lib/trip-types";
 import { syncPackingChecks } from "@/lib/trip-types";
@@ -12,17 +17,6 @@ type Props = {
   initialUpdatedAt: string;
 };
 
-function membersToText(members: string[]) {
-  return members.join("\n");
-}
-
-function textToMembers(text: string) {
-  return text
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 function isEmbedUrl(url: string) {
   try {
     const u = new URL(url);
@@ -32,6 +26,8 @@ function isEmbedUrl(url: string) {
   }
 }
 
+const YURU_TO_DEFAULT = "https://yuru-to.net/";
+
 export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) {
   const [form, setForm] = useState<TripPayload>(initialPayload);
   const [updatedAt, setUpdatedAt] = useState(initialUpdatedAt);
@@ -40,8 +36,6 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
   const [copyDone, setCopyDone] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipFirstAutosave = useRef(true);
-
-  const membersText = useMemo(() => membersToText(form.members), [form.members]);
 
   const save = useCallback(
     async (payload: TripPayload) => {
@@ -64,6 +58,7 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
           id,
           title: payload.title.trim() || "無題の山行",
           planDate: payload.planDate.trim() || null,
+          planEndDate: payload.planEndDate.trim() || null,
           updatedAt: data.updated_at,
         });
       } catch {
@@ -80,9 +75,10 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       id,
       title: form.title.trim() || "無題の山行",
       planDate: form.planDate.trim() || null,
+      planEndDate: form.planEndDate.trim() || null,
       updatedAt,
     });
-  }, [id, form.title, form.planDate, updatedAt]);
+  }, [id, form.title, form.planDate, form.planEndDate, updatedAt]);
 
   useEffect(() => {
     if (skipFirstAutosave.current) {
@@ -112,10 +108,38 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
     setForm((f) => ({ ...f, [key]: value }));
   };
 
-  const setMembersFromText = (text: string) => {
-    const members = textToMembers(text);
+  const updateMember = (index: number, value: string) => {
     setForm((f) => {
-      const packingChecks = syncPackingChecks(f.packingChecks, f.packingList, members.length);
+      const members = f.members.map((m, i) => (i === index ? value : m));
+      const packingChecks = syncPackingChecks(
+        f.packingChecks,
+        f.packingList,
+        members.length,
+      );
+      return { ...f, members, packingChecks };
+    });
+  };
+
+  const addMember = () => {
+    setForm((f) => ({
+      ...f,
+      members: [...f.members, ""],
+      packingChecks: syncPackingChecks(
+        f.packingChecks,
+        f.packingList,
+        f.members.length + 1,
+      ),
+    }));
+  };
+
+  const removeMember = (index: number) => {
+    setForm((f) => {
+      const members = f.members.filter((_, i) => i !== index);
+      const packingChecks = syncPackingChecks(
+        f.packingChecks,
+        f.packingList,
+        members.length,
+      );
       return { ...f, members, packingChecks };
     });
   };
@@ -127,7 +151,11 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
         : `item_${Date.now()}`;
     setForm((f) => {
       const packingList = [...f.packingList, { id: nid, text: "" }];
-      const packingChecks = syncPackingChecks(f.packingChecks, packingList, f.members.length);
+      const packingChecks = syncPackingChecks(
+        f.packingChecks,
+        packingList,
+        f.members.length,
+      );
       return { ...f, packingList, packingChecks };
     });
   };
@@ -153,7 +181,8 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
 
   const togglePacking = (itemId: string, memberIndex: number) => {
     setForm((f) => {
-      const row = f.packingChecks[itemId] ?? Array(f.members.length).fill(false);
+      const row =
+        f.packingChecks[itemId] ?? Array(f.members.length).fill(false);
       const nextRow = row.map((v, i) => (i === memberIndex ? !v : v));
       return {
         ...f,
@@ -162,8 +191,58 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
     });
   };
 
+  const calendarDetails = [
+    form.schedule.trim(),
+    form.yamapUrl ? `YAMAP: ${form.yamapUrl}` : "",
+    typeof window !== "undefined" ? `山行ページ: ${window.location.href}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const addToGoogleCalendar = () => {
+    if (!form.planDate.trim()) {
+      window.alert("「計画日（初日）」を入れてから使えます。");
+      return;
+    }
+    openGoogleCalendarTemplate({
+      title: form.title.trim() || "山行",
+      details: calendarDetails,
+      startYmd: form.planDate.trim(),
+      endInclusiveYmd: form.planEndDate.trim() || null,
+    });
+  };
+
+  const downloadCalendarIcs = () => {
+    if (!form.planDate.trim()) {
+      window.alert("「計画日（初日）」を入れてから使えます。");
+      return;
+    }
+    const ics = buildIcsAllDayEvent({
+      title: form.title.trim() || "山行",
+      description: calendarDetails,
+      startYmd: form.planDate.trim(),
+      endInclusiveYmd: form.planEndDate.trim() || null,
+      url: typeof window !== "undefined" ? window.location.href : undefined,
+    });
+    const safe = (form.title.trim() || "mountaineering").replace(
+      /[\\/:*?"<>|]/g,
+      "_",
+    );
+    downloadIcsFile(`${safe}.ics`, ics);
+  };
+
+  const planRangeShort = useMemo(() => {
+    if (!form.planDate) return null;
+    const a = form.planDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1/$2/$3");
+    if (!form.planEndDate || form.planEndDate === form.planDate) return a;
+    const b = form.planEndDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1/$2/$3");
+    return `${a} 〜 ${b}`;
+  }, [form.planDate, form.planEndDate]);
+
+  const yuruSrc = form.yuruToUrl.trim() || YURU_TO_DEFAULT;
+
   return (
-    <div className="min-h-full bg-zinc-50 pb-28 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="min-h-full bg-zinc-50 pb-32 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 sm:pb-28">
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
         <div className="mx-auto flex max-w-3xl flex-col gap-1 px-4 py-4">
           <Link
@@ -179,8 +258,8 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       </header>
 
       <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
               山行タイトル（メモ）
             </label>
@@ -191,16 +270,34 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
               placeholder="例：〇〇山（日帰り）"
             />
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-48">
-            <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-              計画日（カレンダー用）
-            </label>
-            <input
-              type="date"
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900"
-              value={form.planDate}
-              onChange={(e) => patch("planDate", e.target.value)}
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                計画日（初日・カレンダー用）
+              </label>
+              <input
+                type="date"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900"
+                value={form.planDate}
+                onChange={(e) => patch("planDate", e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                終了日（任意・複数日）
+              </label>
+              <input
+                type="date"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900"
+                value={form.planEndDate}
+                min={form.planDate || undefined}
+                onChange={(e) => patch("planEndDate", e.target.value)}
+              />
+              <p className="text-xs text-zinc-500">
+                2泊3日などは「初日」と「最終日（帰宅日）」を入れると、トップのカレンダーに全日マークされます。Google
+                カレンダー登録もこの期間になります。
+              </p>
+            </div>
           </div>
         </div>
 
@@ -228,27 +325,73 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             placeholder="https://yamap.com/..."
           />
           {form.yamapUrl ? (
-            <a
-              href={form.yamapUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline text-sm font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800 dark:text-emerald-400"
-            >
-              YAMAP を開く
-            </a>
+            <>
+              <a
+                href={form.yamapUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline text-sm font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800 dark:text-emerald-400"
+              >
+                YAMAP を別タブで開く
+              </a>
+              {isEmbedUrl(form.yamapUrl) ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-zinc-500">
+                    共有ページによっては埋め込みが拒否されることがあります。
+                  </p>
+                  <div className="relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900">
+                    <iframe
+                      title="YAMAP"
+                      src={form.yamapUrl}
+                      className="absolute inset-0 h-full w-full"
+                      sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox"
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </>
           ) : null}
         </section>
 
         <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">
-            メンバー（1行に1人）
-          </h2>
-          <textarea
-            className="min-h-[100px] w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm leading-relaxed outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950"
-            value={membersText}
-            onChange={(e) => setMembersFromText(e.target.value)}
-            placeholder={"太郎\n花子（車運転）"}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">
+              メンバー
+            </h2>
+            <button
+              type="button"
+              onClick={addMember}
+              className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+            >
+              追加
+            </button>
+          </div>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            1人につき1行の入力欄です（スマホでも改行で困りません）。
+          </p>
+          <ul className="flex flex-col gap-2">
+            {form.members.length === 0 ? (
+              <li className="text-sm text-zinc-500">「追加」から名前を入れてください。</li>
+            ) : null}
+            {form.members.map((m, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <input
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950"
+                  value={m}
+                  onChange={(e) => updateMember(i, e.target.value)}
+                  placeholder={`メンバー ${i + 1}`}
+                  autoComplete="name"
+                />
+                <button
+                  type="button"
+                  className="shrink-0 text-xs text-red-600 hover:underline dark:text-red-400"
+                  onClick={() => removeMember(i)}
+                >
+                  削除
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -289,7 +432,7 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             </button>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            メンバー列は上の「メンバー」欄の順に並びます。名前を変えると列の対応も変わります。
+            メンバー列は上の順に並びます。
           </p>
           {form.packingList.length === 0 ? (
             <p className="text-sm text-zinc-500">「行を追加」でアイテムを入れてください。</p>
@@ -304,12 +447,12 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/80">
                   <th className="px-2 py-2 text-left font-medium">アイテム</th>
-                  {form.members.map((m) => (
+                  {form.members.map((m, i) => (
                     <th
-                      key={m}
+                      key={`h-${i}-${m}`}
                       className="min-w-[3.5rem] px-1 py-2 text-center text-xs font-medium leading-tight"
                     >
-                      {m}
+                      {m || `—`}
                     </th>
                   ))}
                   <th className="w-10 px-1" />
@@ -369,31 +512,48 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
         </section>
 
         <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">
-            ゆらーく（埋め込み）
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">
+              ゆるーと（埋め込み）
+            </h2>
+            <button
+              type="button"
+              className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+              onClick={() => patch("yuruToUrl", YURU_TO_DEFAULT)}
+            >
+              公式URLを入れる
+            </button>
+          </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            施設・検索結果などのURLを貼り付けます。サイト側の設定で埋め込みが拒否される場合は表示されません。
+            <a
+              href={YURU_TO_DEFAULT}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 underline dark:text-emerald-400"
+            >
+              ゆるーと
+            </a>
+            （全国日帰り温泉マップ）を埋め込み表示します。空欄のときは公式トップを表示します。
           </p>
           <input
             type="url"
             className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900"
-            value={form.yurakuUrl}
-            onChange={(e) => patch("yurakuUrl", e.target.value)}
-            placeholder="https://..."
+            value={form.yuruToUrl}
+            onChange={(e) => patch("yuruToUrl", e.target.value)}
+            placeholder="https://yuru-to.net/ ..."
           />
-          {form.yurakuUrl && isEmbedUrl(form.yurakuUrl) ? (
+          {isEmbedUrl(yuruSrc) ? (
             <div className="space-y-2">
               <div className="relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900">
                 <iframe
-                  title="ゆらーく埋め込み"
-                  src={form.yurakuUrl}
+                  title="ゆるーと埋め込み"
+                  src={yuruSrc}
                   className="absolute inset-0 h-full w-full"
                   sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox"
                 />
               </div>
               <a
-                href={form.yurakuUrl}
+                href={yuruSrc}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline text-sm font-medium text-emerald-700 underline underline-offset-2 dark:text-emerald-400"
@@ -439,24 +599,21 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
         </p>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white/95 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 flex-1 truncate text-sm text-zinc-600 dark:text-zinc-400">
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95">
+        <div className="mx-auto flex max-w-3xl flex-col gap-3">
+          <div className="min-w-0 text-sm text-zinc-600 dark:text-zinc-400">
             <span className="font-medium text-zinc-900 dark:text-zinc-100">
               {form.title.trim() || "無題の山行"}
             </span>
-            {form.planDate ? (
-              <span className="ml-2 text-zinc-500">
-                ·{" "}
-                {form.planDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1/$2/$3")}
-              </span>
+            {planRangeShort ? (
+              <span className="ml-2 text-zinc-500">· {planRangeShort}</span>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => save(form)}
-              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-70"
+              className="rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-70"
               disabled={saving}
             >
               {saving ? "保存中…" : "保存"}
@@ -464,11 +621,29 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             <button
               type="button"
               onClick={onCopyLink}
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
               {copyDone ? "コピー済み" : "リンクをコピー"}
             </button>
+            <button
+              type="button"
+              onClick={addToGoogleCalendar}
+              className="rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-100 dark:hover:bg-emerald-900"
+            >
+              Googleカレンダー
+            </button>
+            <button
+              type="button"
+              onClick={downloadCalendarIcs}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              .ics を保存
+            </button>
           </div>
+          <p className="text-[11px] leading-snug text-zinc-500">
+            「Googleカレンダー」はブラウザで開きます。「.ics」は iPhone
+            のファイルアプリやOutlookでも取り込めます。
+          </p>
         </div>
       </div>
     </div>

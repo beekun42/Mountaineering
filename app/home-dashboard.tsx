@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { addDaysToYmd } from "@/lib/calendar-export";
 import {
   readTripRegistry,
   removeTripRegistry,
@@ -30,7 +31,7 @@ export function HomeDashboard() {
   useEffect(() => {
     void Promise.resolve().then(() => refresh());
     const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key.includes("trip-registry")) refresh();
+      if (e.key === null || e.key?.includes("trip-registry")) refresh();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -40,9 +41,16 @@ export function HomeDashboard() {
     const m = new Map<string, TripRegistryEntry[]>();
     for (const t of entries) {
       if (!t.planDate) continue;
-      const list = m.get(t.planDate) ?? [];
-      list.push(t);
-      m.set(t.planDate, list);
+      const end =
+        t.planEndDate && t.planEndDate >= t.planDate ? t.planEndDate : t.planDate;
+      let cur = t.planDate;
+      for (;;) {
+        const list = m.get(cur) ?? [];
+        list.push(t);
+        m.set(cur, list);
+        if (cur >= end) break;
+        cur = addDaysToYmd(cur, 1);
+      }
     }
     return m;
   }, [entries]);
@@ -80,7 +88,16 @@ export function HomeDashboard() {
           登山の計画を、ひとつのページにまとめる
         </h1>
         <p className="text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          YAMAP・ゆらーく・Walica などのリンクや、日程・持ち物・交通のメモを共有します。
+          YAMAP・
+          <a
+            href="https://yuru-to.net/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+          >
+            ゆるーと
+          </a>
+          ・Walica などのリンクや、日程・持ち物・交通のメモを共有します。
           アカウントは不要で、URL を知っている仲間だけが編集できます。
         </p>
         <p className="text-sm text-zinc-500 dark:text-zinc-500">
@@ -113,6 +130,9 @@ export function HomeDashboard() {
             </button>
           </div>
         </div>
+        <p className="mb-2 text-xs text-zinc-500">
+          複数日にまたぐ山行は、山行ページの「終了日」までカレンダーに点が付きます。
+        </p>
         <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-zinc-500">
           {weekdays.map((w) => (
             <div key={w} className="py-1">
@@ -164,6 +184,11 @@ export function HomeDashboard() {
                     >
                       {t.title}
                     </Link>
+                    {t.planDate ? (
+                      <p className="text-xs text-zinc-500">
+                        {formatRangeLabel(t.planDate, t.planEndDate)}
+                      </p>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -200,7 +225,7 @@ export function HomeDashboard() {
                   </Link>
                   <p className="truncate text-xs text-zinc-500">
                     {t.planDate
-                      ? t.planDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1/$2/$3")
+                      ? formatRangeLabel(t.planDate, t.planEndDate)
                       : "日付未設定"}
                     {" · "}
                     {new Date(t.updatedAt).toLocaleString("ja-JP", {
@@ -228,4 +253,11 @@ export function HomeDashboard() {
       <CreateTripButton />
     </div>
   );
+}
+
+function formatRangeLabel(start: string, end: string | null) {
+  const a = start.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1/$2/$3");
+  if (!end || end === start) return a;
+  const b = end.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1/$2/$3");
+  return `${a} 〜 ${b}`;
 }
