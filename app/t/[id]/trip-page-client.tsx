@@ -150,7 +150,7 @@ export function TripPageClient({
   }, [session?.user?.id]);
 
   const save = useCallback(
-    async (payload: TripPayload) => {
+    async (payload: TripPayload): Promise<boolean> => {
       setSaving(true);
       setStatus("idle");
       try {
@@ -174,8 +174,10 @@ export function TripPageClient({
           updatedAt: data.updated_at,
           participating: participatingFromMembers(session?.user?.name, payload.members),
         });
+        return true;
       } catch {
         setStatus("error");
+        return false;
       } finally {
         setSaving(false);
       }
@@ -300,6 +302,13 @@ export function TripPageClient({
       setDeleteMessage("削除に失敗しました。通信状態を確認してください。");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const onSaveAndBack = async () => {
+    const ok = await save(form);
+    if (ok) {
+      router.push("/");
     }
   };
 
@@ -1396,11 +1405,11 @@ export function TripPageClient({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => save(form)}
+              onClick={onSaveAndBack}
               className="rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-70"
               disabled={saving}
             >
-              {saving ? "保存中…" : "保存"}
+              {saving ? "保存中…" : "保存してトップへ"}
             </button>
             <button
               type="button"

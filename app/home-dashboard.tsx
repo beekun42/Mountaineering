@@ -47,7 +47,7 @@ function capacityTone(participantCount: number, capacity: number) {
     return {
       text: `${participantCount}/${capacity}`,
       className:
-        "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300",
+        "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
     };
   }
   if (ratio >= 0.7) {
