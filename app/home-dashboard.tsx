@@ -14,6 +14,10 @@ const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 /** カレンダー日付マス内の山行名（視認性のため文字数制限） */
 const CAL_TITLE_MAX_CHARS = 7;
 
+type HomeTripEntry = TripRegistryEntry & {
+  canDelete?: boolean;
+};
+
 function pad(n: number) {
   return n < 10 ? `0${n}` : String(n);
 }
@@ -29,7 +33,7 @@ function CalendarDayDots({
   trips,
   loggedIn,
 }: {
-  trips: TripRegistryEntry[];
+  trips: HomeTripEntry[];
   loggedIn: boolean;
 }) {
   if (!loggedIn) {
@@ -75,7 +79,7 @@ export function HomeDashboard() {
   const { data: session, status } = useSession();
   const loggedIn = !!session?.user;
 
-  const [entries, setEntries] = useState<TripRegistryEntry[]>([]);
+  const [entries, setEntries] = useState<HomeTripEntry[]>([]);
   const [view, setView] = useState(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), 1);
@@ -93,7 +97,7 @@ export function HomeDashboard() {
         setEntries([]);
         return;
       }
-      const data = (await res.json()) as { entries: TripRegistryEntry[] };
+      const data = (await res.json()) as { entries: HomeTripEntry[] };
       setEntries(data.entries ?? []);
     } catch {
       setEntries([]);
@@ -139,8 +143,32 @@ export function HomeDashboard() {
     [refresh],
   );
 
+  const deleteTripAsOwner = useCallback(
+    async (tripId: string) => {
+      const ok = window.confirm(
+        "この山行を削除しますか？\n削除すると、全員のカレンダーと山行ページから消えます。",
+      );
+      if (!ok) return;
+      try {
+        const res = await fetch(`/api/trips/${tripId}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          alert(`削除に失敗しました: ${t || res.statusText}`);
+          return;
+        }
+        await refresh();
+      } catch {
+        alert("削除に失敗しました。時間をおいて再試行してください。");
+      }
+    },
+    [refresh],
+  );
+
   const byDate = useMemo(() => {
-    const m = new Map<string, TripRegistryEntry[]>();
+    const m = new Map<string, HomeTripEntry[]>();
     for (const t of entries) {
       if (!t.planDate) continue;
       const end =
@@ -344,14 +372,25 @@ export function HomeDashboard() {
                       })}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    className="shrink-0 text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-                    title="あなたのホームからだけ外します（山行ページは消えません）"
-                    onClick={() => void hideFromHome(t.id)}
-                  >
-                    ホームから隠す
-                  </button>
+                  {t.canDelete ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                      title="作成者として山行を完全削除（全員に反映）"
+                      onClick={() => void deleteTripAsOwner(t.id)}
+                    >
+                      山行を削除
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+                      title="あなたのホームからだけ外します（山行ページは消えません）"
+                      onClick={() => void hideFromHome(t.id)}
+                    >
+                      ホームから隠す
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

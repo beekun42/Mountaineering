@@ -76,6 +76,10 @@ export type TripRow = {
   updated_at: string;
 };
 
+export type CalendarTripRow = TripRow & {
+  owner_id: string | null;
+};
+
 export type UserRow = {
   id: string;
   username: string;
@@ -333,7 +337,7 @@ export async function listTripsByOwner(ownerId: string): Promise<TripRow[]> {
 export async function listTripsForUserCalendar(
   userId: string,
   username: string,
-): Promise<TripRow[]> {
+): Promise<CalendarTripRow[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
@@ -348,7 +352,7 @@ export async function listTripsForUserCalendar(
     LIMIT 600
   `;
   const key = username.trim().toLowerCase();
-  const out: TripRow[] = [];
+  const out: CalendarTripRow[] = [];
   for (const row of rows) {
     const r = row as {
       id: string;
@@ -365,6 +369,7 @@ export async function listTripsForUserCalendar(
     out.push({
       id: r.id,
       payload,
+      owner_id: r.owner_id,
       updated_at:
         typeof r.updated_at === "string"
           ? r.updated_at
@@ -386,6 +391,29 @@ export async function hideTripFromUserCalendar(
     VALUES (${userId}, ${tripId})
     ON CONFLICT (user_id, trip_id) DO NOTHING
   `;
+}
+
+export async function deleteTripByOwner(
+  tripId: string,
+  ownerId: string,
+): Promise<"deleted" | "not_found" | "forbidden"> {
+  await ensureSchema();
+  const sql = getSql();
+  const cur = await sql`
+    SELECT owner_id
+    FROM trips
+    WHERE id = ${tripId}
+    LIMIT 1
+  `;
+  const row = cur[0] as { owner_id: string | null } | undefined;
+  if (!row) return "not_found";
+  if (row.owner_id !== ownerId) return "forbidden";
+
+  await sql`
+    DELETE FROM trips
+    WHERE id = ${tripId}
+  `;
+  return "deleted";
 }
 
 export async function getTrip(id: string): Promise<TripRow | null> {

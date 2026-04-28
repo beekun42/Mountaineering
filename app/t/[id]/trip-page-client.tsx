@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -8,7 +9,11 @@ import {
   downloadIcsFile,
   openGoogleCalendarTemplate,
 } from "@/lib/calendar-export";
-import { participatingFromMembers, upsertTripRegistry } from "@/lib/trip-registry";
+import {
+  participatingFromMembers,
+  removeTripRegistry,
+  upsertTripRegistry,
+} from "@/lib/trip-registry";
 import type {
   PackingTemplatePayload,
   SettlementTemplatePayload,
@@ -96,6 +101,7 @@ function computeTransfers(memberCount: number, entries: PaymentEntry[]): Transfe
 }
 
 export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) {
+  const router = useRouter();
   const { data: session } = useSession();
   const [packingTemplates, setPackingTemplates] = useState<TripRemoteTemplate[]>([]);
   const [settlementTemplates, setSettlementTemplates] = useState<TripRemoteTemplate[]>(
@@ -112,6 +118,8 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
   const [yamapTitle, setYamapTitle] = useState("");
   const [yamapLoading, setYamapLoading] = useState(false);
   const [yamapError, setYamapError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipFirstAutosave = useRef(true);
 
@@ -243,6 +251,49 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
       setTimeout(() => setCopyDone(false), 2000);
     } catch {
       setStatus("error");
+    }
+  };
+
+  const onDeleteTrip = async () => {
+    if (!session?.user?.id) {
+      setDeleteMessage("ログインした作成者のみ削除できます。");
+      return;
+    }
+    const ok = window.confirm(
+      "この山行を削除しますか？\n削除すると、全員の共通カレンダーと山行ページから消えます。",
+    );
+    if (!ok) return;
+    setDeleting(true);
+    setDeleteMessage("");
+    try {
+      const res = await fetch(`/api/trips/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        removeTripRegistry(id);
+        router.replace("/");
+        return;
+      }
+      if (res.status === 403) {
+        setDeleteMessage("作成者のみ削除できます。");
+        return;
+      }
+      if (res.status === 401) {
+        setDeleteMessage("ログインが切れました。再ログインして再試行してください。");
+        return;
+      }
+      if (res.status === 404) {
+        setDeleteMessage("すでに削除済みです。トップへ戻ります。");
+        removeTripRegistry(id);
+        router.replace("/");
+        return;
+      }
+      setDeleteMessage("削除に失敗しました。時間をおいて再試行してください。");
+    } catch {
+      setDeleteMessage("削除に失敗しました。通信状態を確認してください。");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1227,6 +1278,7 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
           })}
           {status === "saved" && !saving ? " · 保存しました" : null}
           {status === "error" ? " · 保存に失敗しました（下のバーから再試行）" : null}
+          {deleteMessage ? ` · ${deleteMessage}` : null}
         </p>
       </main>
 
@@ -1269,6 +1321,15 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
             >
               .ics を保存
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteTrip}
+              disabled={deleting || !session?.user?.id}
+              className="rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 shadow-sm hover:bg-red-100 disabled:opacity-60 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300"
+              title={session?.user?.id ? "作成者のみ削除できます" : "ログインすると使えます"}
+            >
+              {deleting ? "削除中…" : "山行を削除"}
             </button>
           </div>
         </div>

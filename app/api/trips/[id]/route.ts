@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { getTrip, updateTrip } from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-options";
+import { deleteTripByOwner, getTrip, updateTrip } from "@/lib/db";
 import { isValidTripId } from "@/lib/trip-id";
 import { normalizePayload } from "@/lib/trip-types";
 export const runtime = "nodejs";
@@ -46,6 +48,30 @@ export async function PUT(req: Request, ctx: Ctx) {
     if (message === "not_found") {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(_req: Request, ctx: Ctx) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const { id } = await ctx.params;
+  if (!isValidTripId(id)) {
+    return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  }
+  try {
+    const result = await deleteTripByOwner(id, session.user.id);
+    if (result === "not_found") {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    if (result === "forbidden") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

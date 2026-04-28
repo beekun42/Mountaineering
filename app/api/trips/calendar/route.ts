@@ -21,6 +21,7 @@ export async function GET() {
       planEndDate: p.planEndDate.trim() || null,
       updatedAt: row.updated_at,
       participating: participatingFromMembers(session.user.name, p.members),
+      canDelete: row.owner_id === session.user.id,
     };
   });
   return NextResponse.json({ entries });
