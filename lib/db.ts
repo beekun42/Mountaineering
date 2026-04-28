@@ -416,6 +416,21 @@ export async function deleteTripByOwner(
   return "deleted";
 }
 
+export async function isTripOwner(
+  tripId: string,
+  userId: string,
+): Promise<boolean> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT 1
+    FROM trips
+    WHERE id = ${tripId} AND owner_id = ${userId}
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 export async function getTrip(id: string): Promise<TripRow | null> {
   await ensureSchema();
   const sql = getSql();

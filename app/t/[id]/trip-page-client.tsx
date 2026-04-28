@@ -26,6 +26,7 @@ type Props = {
   id: string;
   initialPayload: TripPayload;
   initialUpdatedAt: string;
+  canManageRecruitment: boolean;
 };
 
 type Transfer = {
@@ -100,7 +101,12 @@ function computeTransfers(memberCount: number, entries: PaymentEntry[]): Transfe
   return out;
 }
 
-export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) {
+export function TripPageClient({
+  id,
+  initialPayload,
+  initialUpdatedAt,
+  canManageRecruitment,
+}: Props) {
   const router = useRouter();
   const { data: session } = useSession();
   const [packingTemplates, setPackingTemplates] = useState<TripRemoteTemplate[]>([]);
@@ -807,18 +813,30 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[12rem_1fr] sm:items-end">
-            <label className="text-xs text-zinc-600 dark:text-zinc-300">
-              定員（0=無制限）
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                value={recruitCapacity}
-                onChange={(e) =>
-                  patch("recruitCapacity", Math.max(0, Math.floor(Number(e.target.value) || 0)))
-                }
-              />
-            </label>
+            {canManageRecruitment ? (
+              <label className="text-xs text-zinc-600 dark:text-zinc-300">
+                定員（0=無制限）
+                <input
+                  type="number"
+                  min={0}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  value={recruitCapacity}
+                  onChange={(e) =>
+                    patch(
+                      "recruitCapacity",
+                      Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                    )
+                  }
+                />
+              </label>
+            ) : (
+              <div className="text-xs text-zinc-600 dark:text-zinc-300">
+                <p className="font-medium">定員</p>
+                <p className="mt-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950">
+                  {recruitHasLimit ? `${recruitCapacity}名` : "無制限"}
+                </p>
+              </div>
+            )}
             <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950">
               <p className="font-medium">
                 参加状況: {participantCount}
@@ -828,6 +846,11 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
               <p className="mt-1 text-xs text-zinc-500">
                 トップのカレンダーにも {recruitHasLimit ? `${participantCount}/${recruitCapacity}` : `${participantCount}名`} で表示されます。
               </p>
+              {!canManageRecruitment ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  定員の変更は作成者のみ可能です。
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

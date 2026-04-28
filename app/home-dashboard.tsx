@@ -34,6 +34,36 @@ function truncateCalTitle(title: string): string {
   return arr.slice(0, CAL_TITLE_MAX_CHARS).join("") + "…";
 }
 
+function capacityTone(participantCount: number, capacity: number) {
+  if (capacity <= 0) {
+    return {
+      text: `${participantCount}名`,
+      className:
+        "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+    };
+  }
+  const ratio = participantCount / capacity;
+  if (participantCount >= capacity) {
+    return {
+      text: `${participantCount}/${capacity}`,
+      className:
+        "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300",
+    };
+  }
+  if (ratio >= 0.7) {
+    return {
+      text: `${participantCount}/${capacity}`,
+      className:
+        "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+    };
+  }
+  return {
+    text: `${participantCount}/${capacity}`,
+    className:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  };
+}
+
 function CalendarDayDots({
   trips,
   loggedIn,
@@ -288,18 +318,28 @@ export function HomeDashboard() {
                         <CalendarDayDots trips={dayTrips} loggedIn={loggedIn} />
                       </div>
                       <div className="mt-auto flex min-w-0 flex-col gap-0.5">
-                        {dayTrips.slice(0, 2).map((t) => (
-                          <p
-                            key={t.id}
-                            className="line-clamp-1 w-full break-all text-left text-[9px] leading-tight text-zinc-600 dark:text-zinc-400"
-                            title={t.title}
-                          >
-                            {truncateCalTitle(t.title)}
-                            {t.recruitCapacity && t.recruitCapacity > 0
-                              ? ` ${t.participantCount ?? 0}/${t.recruitCapacity}`
-                              : ""}
-                          </p>
-                        ))}
+                        {dayTrips.slice(0, 2).map((t) => {
+                          const tone = capacityTone(
+                            t.participantCount ?? 0,
+                            t.recruitCapacity ?? 0,
+                          );
+                          return (
+                            <div
+                              key={t.id}
+                              className="flex items-center gap-1 text-left text-[9px] leading-tight"
+                              title={t.title}
+                            >
+                              <p className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-400">
+                                {truncateCalTitle(t.title)}
+                              </p>
+                              <span
+                                className={`rounded px-1 py-0.5 text-[8px] font-semibold ${tone.className}`}
+                              >
+                                {tone.text}
+                              </span>
+                            </div>
+                          );
+                        })}
                         {dayTrips.length > 2 ? (
                           <p className="text-[9px] leading-tight text-zinc-400">
                             +{dayTrips.length - 2}
@@ -330,12 +370,23 @@ export function HomeDashboard() {
                       >
                         {t.title}
                       </Link>
-                    {t.recruitCapacity && t.recruitCapacity > 0 ? (
-                      <p className="text-xs text-zinc-500">
-                        参加 {t.participantCount ?? 0}/{t.recruitCapacity}
-                        {t.isFull ? "（満員）" : ""}
-                      </p>
-                    ) : null}
+                    {(() => {
+                      const tone = capacityTone(
+                        t.participantCount ?? 0,
+                        t.recruitCapacity ?? 0,
+                      );
+                      return (
+                        <p className="text-xs text-zinc-500">
+                          参加{" "}
+                          <span
+                            className={`rounded px-1.5 py-0.5 font-semibold ${tone.className}`}
+                          >
+                            {tone.text}
+                          </span>
+                          {t.isFull ? "（満員）" : ""}
+                        </p>
+                      );
+                    })()}
                       {t.planDate ? (
                         <p className="text-xs text-zinc-500">
                           {formatRangeLabel(t.planDate, t.planEndDate)}

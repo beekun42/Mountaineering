@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { getServerSession } from "next-auth";
 import { cache } from "react";
-import { getTrip as loadTrip } from "@/lib/db";
+import { authOptions } from "@/lib/auth-options";
+import { getTrip as loadTrip, isTripOwner } from "@/lib/db";
 import { isValidTripId } from "@/lib/trip-id";
 import { TripPageClient } from "./trip-page-client";
 
@@ -32,11 +34,16 @@ export default async function TripPage(ctx: Ctx) {
   if (!isValidTripId(id)) notFound();
   const trip = await getTrip(id);
   if (!trip) notFound();
+  const session = await getServerSession(authOptions);
+  const canManageRecruitment = session?.user?.id
+    ? await isTripOwner(id, session.user.id)
+    : false;
   return (
     <TripPageClient
       id={trip.id}
       initialPayload={trip.payload}
       initialUpdatedAt={trip.updated_at}
+      canManageRecruitment={canManageRecruitment}
     />
   );
 }
