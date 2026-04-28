@@ -13,6 +13,12 @@ export type PaymentEntry = {
 
 export type TripPayload = {
   title: string;
+  /** 募集カード表示ON/OFF */
+  isRecruiting: boolean;
+  /** 募集カードの表示名（空なら title を利用） */
+  recruitTitle: string;
+  /** 定員。0 は未設定（実質無制限） */
+  recruitCapacity: number;
   /** YYYY-MM-DD または空（期間の初日） */
   planDate: string;
   /** YYYY-MM-DD または空。空なら planDate のみの1日 */
@@ -44,6 +50,9 @@ export type TripPayload = {
 export function defaultTripPayload(): TripPayload {
   return {
     title: "",
+    isRecruiting: false,
+    recruitTitle: "",
+    recruitCapacity: 0,
     planDate: "",
     planEndDate: "",
     schedule: "",
@@ -204,6 +213,15 @@ export function normalizePayload(raw: unknown): TripPayload {
 
   return {
     title: typeof o.title === "string" ? o.title : d.title,
+    isRecruiting: o.isRecruiting === true,
+    recruitTitle:
+      typeof o.recruitTitle === "string" ? o.recruitTitle : d.recruitTitle,
+    recruitCapacity:
+      typeof o.recruitCapacity === "number" &&
+      Number.isInteger(o.recruitCapacity) &&
+      o.recruitCapacity >= 0
+        ? o.recruitCapacity
+        : d.recruitCapacity,
     planDate: typeof o.planDate === "string" ? o.planDate : d.planDate,
     planEndDate,
     schedule: typeof o.schedule === "string" ? o.schedule : d.schedule,

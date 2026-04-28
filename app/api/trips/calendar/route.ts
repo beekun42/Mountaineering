@@ -14,6 +14,8 @@ export async function GET() {
   const rows = await listTripsForUserCalendar(session.user.id, session.user.name);
   const entries = rows.map((row) => {
     const p = row.payload;
+    const participantCount = p.members.filter((m) => m.trim() !== "").length;
+    const capacity = p.recruitCapacity > 0 ? p.recruitCapacity : 0;
     return {
       id: row.id,
       title: p.title.trim() || "無題の山行",
@@ -22,6 +24,11 @@ export async function GET() {
       updatedAt: row.updated_at,
       participating: participatingFromMembers(session.user.name, p.members),
       canDelete: row.owner_id === session.user.id,
+      isRecruiting: p.isRecruiting === true,
+      recruitTitle: p.recruitTitle.trim() || "",
+      recruitCapacity: capacity,
+      participantCount,
+      isFull: capacity > 0 && participantCount >= capacity,
     };
   });
   return NextResponse.json({ entries });

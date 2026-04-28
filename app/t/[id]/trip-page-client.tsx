@@ -369,6 +369,31 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
     });
   };
 
+  const leaveAsLoggedInMember = () => {
+    const name = session?.user?.name?.trim();
+    if (!name) return;
+    setForm((f) => {
+      const key = name.toLowerCase();
+      const idx = f.members.findIndex((m) => m.trim().toLowerCase() === key);
+      if (idx < 0) return f;
+      const members = f.members.filter((_, i) => i !== idx);
+      const memberPaymentDoneChecks = f.memberPaymentDoneChecks.filter(
+        (_, i) => i !== idx,
+      );
+      return {
+        ...f,
+        members,
+        packingChecks: syncPackingChecks(f.packingChecks, f.packingList, members.length),
+        memberPaymentDoneChecks: syncMemberDoneChecks(
+          memberPaymentDoneChecks,
+          members.length,
+        ),
+        payments: adjustPaymentsByMemberRemove(f.payments, idx),
+        settlementChecks: {},
+      };
+    });
+  };
+
   const removeMember = (index: number) => {
     setForm((f) => {
       const members = f.members.filter((_, i) => i !== index);
@@ -616,6 +641,15 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
     return `${a} 〜 ${b}`;
   }, [form.planDate, form.planEndDate]);
 
+  const loginName = session?.user?.name?.trim() ?? "";
+  const participantCount = form.members.filter((m) => m.trim() !== "").length;
+  const recruitCapacity = Math.max(0, Math.floor(form.recruitCapacity || 0));
+  const recruitHasLimit = recruitCapacity > 0;
+  const recruitIsFull = recruitHasLimit && participantCount >= recruitCapacity;
+  const recruitJoined =
+    loginName !== "" &&
+    form.members.some((m) => m.trim().toLowerCase() === loginName.toLowerCase());
+
   const yuruToUrl = form.yuruToUrl.trim() || YURU_TO_DEFAULT;
 
   const coverUrl = form.yamapCoverImageUrl.trim();
@@ -688,6 +722,76 @@ export function TripPageClient({ id, initialPayload, initialUpdatedAt }: Props) 
             </div>
           </div>
         </div>
+
+        <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">
+              募集
+            </h2>
+            <label className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-emerald-600"
+                checked={form.isRecruiting}
+                onChange={(e) => patch("isRecruiting", e.target.checked)}
+              />
+              募集を公開
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="text-xs text-zinc-600 dark:text-zinc-300">
+              募集名（任意）
+              <input
+                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                value={form.recruitTitle}
+                onChange={(e) => patch("recruitTitle", e.target.value)}
+                placeholder="例：5月の奥多摩ハイク"
+              />
+            </label>
+            <label className="text-xs text-zinc-600 dark:text-zinc-300">
+              定員（0=無制限）
+              <input
+                type="number"
+                min={0}
+                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                value={recruitCapacity}
+                onChange={(e) =>
+                  patch("recruitCapacity", Math.max(0, Math.floor(Number(e.target.value) || 0)))
+                }
+              />
+            </label>
+          </div>
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-950">
+            <p className="font-medium">
+              参加状況: {participantCount}
+              {recruitHasLimit ? ` / ${recruitCapacity}` : " 名（無制限）"}
+              {recruitIsFull ? " · 満員" : ""}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              「参加」するとメンバーに自分のログイン名が追加されます。募集をONにするとトップの募集カードにも表示されます。
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {recruitJoined ? (
+                <button
+                  type="button"
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium dark:border-zinc-600 dark:bg-zinc-900"
+                  onClick={leaveAsLoggedInMember}
+                >
+                  参加をキャンセル
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!form.isRecruiting || !session?.user?.name?.trim() || recruitIsFull}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={joinAsLoggedInMember}
+                >
+                  {!form.isRecruiting ? "募集停止中" : recruitIsFull ? "満員" : "参加する"}
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
 
         <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="text-base font-semibold text-emerald-800 dark:text-emerald-300">

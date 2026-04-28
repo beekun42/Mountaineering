@@ -16,6 +16,11 @@ const CAL_TITLE_MAX_CHARS = 7;
 
 type HomeTripEntry = TripRegistryEntry & {
   canDelete?: boolean;
+  isRecruiting?: boolean;
+  recruitTitle?: string;
+  recruitCapacity?: number;
+  participantCount?: number;
+  isFull?: boolean;
 };
 
 function pad(n: number) {
@@ -208,9 +213,69 @@ export function HomeDashboard() {
   const selectedTrips =
     selectedYmd && byDate.has(selectedYmd) ? byDate.get(selectedYmd)! : [];
 
+  const recruitingEntries = useMemo(
+    () =>
+      entries
+        .filter((t) => t.isRecruiting === true)
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        )
+        .slice(0, 8),
+    [entries],
+  );
+
   const dashboardAfterLogin =
     status !== "loading" && loggedIn ? (
       <>
+        <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white/90 p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              募集
+            </h2>
+            <span className="text-xs text-zinc-500">
+              山行ページで「募集を公開」をONにするとここに出ます
+            </span>
+          </div>
+          {recruitingEntries.length === 0 ? (
+            <p className="text-sm text-zinc-500">
+              いま募集はありません。山行ページで募集をONにしてください。
+            </p>
+          ) : (
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {recruitingEntries.map((t) => {
+                const displayTitle =
+                  t.recruitTitle?.trim() || t.title.trim() || "山行未定";
+                const cnt = t.participantCount ?? 0;
+                const cap = t.recruitCapacity ?? 0;
+                const capLabel = cap > 0 ? `${cnt}/${cap}` : `${cnt}名`;
+                return (
+                  <li
+                    key={t.id}
+                    className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-950"
+                  >
+                    <Link
+                      href={`/t/${t.id}`}
+                      className="block truncate text-sm font-semibold text-emerald-800 hover:underline dark:text-emerald-300"
+                    >
+                      {displayTitle}
+                    </Link>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {t.planDate
+                        ? formatRangeLabel(t.planDate, t.planEndDate)
+                        : "日付未定"}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                      定員: {cap > 0 ? cap : "無制限"} · 参加: {capLabel}
+                      {t.isFull ? "（満員）" : ""}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         <section className="rounded-2xl border border-zinc-200 bg-white/90 p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
